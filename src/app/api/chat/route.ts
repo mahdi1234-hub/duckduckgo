@@ -5,10 +5,6 @@ import {
   AIMessage,
   SystemMessage,
 } from "@langchain/core/messages";
-import {
-  searchDuckDuckGo,
-  formatSearchResults,
-} from "@/lib/duckduckgo-search";
 
 const SYSTEM_PROMPT = `You are an elite AI-powered Search Specialist Agent called "Etheria Search". Your mission is to provide the most accurate, up-to-date, and comprehensive information on any topic the user asks about.
 
@@ -69,15 +65,11 @@ IMPORTANT RULES:
 - Use markdown tables, task lists, footnotes, and strikethrough where appropriate.
 - Format all URLs as clickable markdown links: [Title](url)
 - Be context-aware: understand the user's intent and tailor your search analysis accordingly.
-- Categorize each search result into the appropriate section (news, blog, video, report, etc.) based on the URL domain and content.`;
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+- Categorize each search result into the appropriate section based on the URL domain and content.`;
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json();
+    const { messages, searchResults } = await req.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -109,41 +101,13 @@ export async function POST(req: NextRequest) {
     const lastMessage = messages[messages.length - 1];
     const userQuery = lastMessage.content;
 
-    // Perform 3 focused searches using custom DuckDuckGo scraper
-    // We limit to 3 searches with delays to avoid rate limiting
-    let allSearchResults = "";
-
-    // 1. Main comprehensive search
-    const mainResults = await searchDuckDuckGo(userQuery, 10);
-    allSearchResults += formatSearchResults(
-      mainResults,
-      "Main Web Search Results"
-    );
-
-    // Delay between searches to avoid rate limiting
-    await delay(1000);
-
-    // 2. Latest news, blogs, and updates
-    const newsResults = await searchDuckDuckGo(
-      `${userQuery} latest news blog update announcement 2025 2026`,
-      8
-    );
-    allSearchResults += formatSearchResults(
-      newsResults,
-      "Latest News, Blogs & Updates"
-    );
-
-    await delay(1000);
-
-    // 3. Videos, PDFs, research, and deep resources
-    const deepResults = await searchDuckDuckGo(
-      `${userQuery} video tutorial PDF research report analysis`,
-      8
-    );
-    allSearchResults += formatSearchResults(
-      deepResults,
-      "Videos, Research & Reports"
-    );
+    // Format search results received from client
+    let formattedResults = "";
+    if (searchResults && typeof searchResults === "string") {
+      formattedResults = searchResults;
+    } else {
+      formattedResults = "No search results available.";
+    }
 
     // Build conversation messages with search context
     const langchainMessages = [
@@ -158,7 +122,7 @@ export async function POST(req: NextRequest) {
         }),
       new HumanMessage(
         `User Question: ${userQuery}\n\n` +
-          `=== LIVE DUCKDUCKGO SEARCH RESULTS (${new Date().toISOString()}) ===\n\n${allSearchResults}\n` +
+          `=== LIVE DUCKDUCKGO SEARCH RESULTS (${new Date().toISOString()}) ===\n\n${formattedResults}\n` +
           `=== END OF SEARCH RESULTS ===\n\n` +
           `Instructions: Based on the above REAL search results from DuckDuckGo, provide a comprehensive response following the exact structure defined in your system prompt. ` +
           `Make sure to:\n` +
@@ -168,7 +132,7 @@ export async function POST(req: NextRequest) {
           `4. Add 5 suggested follow-up questions\n` +
           `5. Use GFM markdown: tables, task lists (- [ ] item), ~~strikethrough~~, and [links](url)\n` +
           `6. If certain categories have no results, note that explicitly.\n` +
-          `7. Identify which results are news vs blogs vs videos vs reports based on the domain names (e.g., youtube.com = video, arxiv.org = research).`
+          `7. Identify which results are news vs blogs vs videos vs reports based on the domain names.`
       ),
     ];
 

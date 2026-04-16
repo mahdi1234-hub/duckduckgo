@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import ChatMessage from "@/components/ChatMessage";
 import TypingIndicator from "@/components/TypingIndicator";
+import { performSearches } from "@/lib/client-search";
 
 interface Message {
   role: "user" | "assistant";
@@ -47,10 +48,13 @@ export default function Home() {
     setIsLoading(true);
 
     try {
+      // Perform DuckDuckGo searches via edge API
+      const searchResults = await performSearches(content.trim());
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, searchResults }),
       });
 
       if (!response.ok) {

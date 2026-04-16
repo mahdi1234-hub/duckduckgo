@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.89.0",
     "@langchain/community": "^1.1.27",
     "@langchain/core": "^1.1.40",
     "@langchain/openai": "^1.4.4",

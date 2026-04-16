@@ -8,7 +8,6 @@ const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
 ];
 
 function getRandomUserAgent(): string {
@@ -23,42 +22,86 @@ function decodeHTMLEntities(text: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#x2F;/g, "/")
+    .replace(/&#x60;/g, "`");
 }
 
 /**
- * Search DuckDuckGo using the HTML version (most reliable)
+ * Search using public SearXNG instances (privacy-respecting meta search engine)
+ * SearXNG aggregates results from many search engines including DuckDuckGo, Google, Bing, etc.
  */
-async function searchHTMLFull(
+const SEARXNG_INSTANCES = [
+  "https://search.sapti.me",
+  "https://searxng.site",
+  "https://search.bus-hit.me",
+  "https://priv.au",
+  "https://searx.tiekoetter.com",
+  "https://search.mdosch.de",
+];
+
+async function searchSearXNG(
+  query: string,
+  maxResults: number
+): Promise<SearchResult[]> {
+  for (const instance of SEARXNG_INSTANCES) {
+    try {
+      const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&engines=duckduckgo,google,bing&language=en`;
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": getRandomUserAgent(),
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      if (data.results && data.results.length > 0) {
+        return data.results
+          .slice(0, maxResults)
+          .map(
+            (r: { title?: string; url?: string; content?: string }) => ({
+              title: decodeHTMLEntities(r.title || ""),
+              url: r.url || "",
+              snippet: decodeHTMLEntities(r.content || ""),
+            })
+          );
+      }
+    } catch {
+      // Try next instance
+      continue;
+    }
+  }
+  return [];
+}
+
+/**
+ * Search DuckDuckGo using the HTML version (works from non-cloud IPs)
+ */
+async function searchDDGHTML(
   query: string,
   maxResults: number
 ): Promise<SearchResult[]> {
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const ua = getRandomUserAgent();
-
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        "User-Agent": ua,
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": getRandomUserAgent(),
+        Accept: "text/html",
         "Content-Type": "application/x-www-form-urlencoded",
-        "Cache-Control": "no-cache",
       },
       body: `q=${encodeURIComponent(query)}&b=`,
     });
 
-    if (!response.ok) {
-      console.warn(`DDG HTML returned status ${response.status}`);
-      return [];
-    }
+    if (!response.ok || response.status === 202) return [];
 
     const html = await response.text();
-    const results: SearchResult[] = [];
+    if (!html.includes("result__a")) return [];
 
-    // Parse result links
+    const results: SearchResult[] = [];
     const resultRegex =
       /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
     const snippetRegex =
@@ -69,7 +112,6 @@ async function searchHTMLFull(
 
     while ((match = resultRegex.exec(html)) !== null) {
       let href = match[1];
-      // DDG wraps URLs in a redirect
       if (href.startsWith("//duckduckgo.com/l/?uddg=")) {
         try {
           const urlParam = new URL(`https:${href}`).searchParams.get("uddg");
@@ -100,16 +142,15 @@ async function searchHTMLFull(
     }
 
     return results;
-  } catch (error) {
-    console.error("DDG HTML Full search error:", error);
+  } catch {
     return [];
   }
 }
 
 /**
- * Fallback: search using DuckDuckGo Lite version
+ * Search using DuckDuckGo Lite version
  */
-async function searchHTMLLite(
+async function searchDDGLite(
   query: string,
   maxResults: number
 ): Promise<SearchResult[]> {
@@ -121,12 +162,11 @@ async function searchHTMLLite(
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": getRandomUserAgent(),
         Accept: "text/html",
-        "Accept-Language": "en-US,en;q=0.5",
       },
       body: body.toString(),
     });
 
-    if (!response.ok) return [];
+    if (!response.ok || response.status === 202) return [];
 
     const html = await response.text();
     const results: SearchResult[] = [];
@@ -162,27 +202,31 @@ async function searchHTMLLite(
     }
 
     return results;
-  } catch (error) {
-    console.error("DDG Lite search error:", error);
+  } catch {
     return [];
   }
 }
 
 /**
  * Main search function with fallback chain:
- * 1. Try DuckDuckGo HTML Full version
- * 2. Fallback to DuckDuckGo Lite version
+ * 1. Try SearXNG (meta search engine, works from cloud IPs)
+ * 2. Try DuckDuckGo HTML Full version
+ * 3. Try DuckDuckGo Lite version
  */
 export async function searchDuckDuckGo(
   query: string,
   maxResults: number = 8
 ): Promise<SearchResult[]> {
-  // Method 1: HTML full version (most reliable)
-  let results = await searchHTMLFull(query, maxResults);
+  // Method 1: SearXNG (most reliable from cloud environments)
+  let results = await searchSearXNG(query, maxResults);
   if (results.length > 0) return results;
 
-  // Method 2: Lite version fallback
-  results = await searchHTMLLite(query, maxResults);
+  // Method 2: DDG HTML full version
+  results = await searchDDGHTML(query, maxResults);
+  if (results.length > 0) return results;
+
+  // Method 3: DDG Lite version
+  results = await searchDDGLite(query, maxResults);
   return results;
 }
 
