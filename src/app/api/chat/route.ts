@@ -68,7 +68,8 @@ IMPORTANT RULES:
 - Every link you provide MUST come from the actual search results given to you.
 - Use markdown tables, task lists, footnotes, and strikethrough where appropriate.
 - Format all URLs as clickable markdown links: [Title](url)
-- Be context-aware: understand the user's intent and tailor your search analysis accordingly.`;
+- Be context-aware: understand the user's intent and tailor your search analysis accordingly.
+- Categorize each search result into the appropriate section (news, blog, video, report, etc.) based on the URL domain and content.`;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -108,62 +109,40 @@ export async function POST(req: NextRequest) {
     const lastMessage = messages[messages.length - 1];
     const userQuery = lastMessage.content;
 
-    // Perform multiple diverse searches using custom DuckDuckGo scraper
+    // Perform 3 focused searches using custom DuckDuckGo scraper
+    // We limit to 3 searches with delays to avoid rate limiting
     let allSearchResults = "";
 
-    // 1. Main topic search
-    const mainResults = await searchDuckDuckGo(userQuery, 8);
-    allSearchResults += formatSearchResults(mainResults, "Web Search Results");
+    // 1. Main comprehensive search
+    const mainResults = await searchDuckDuckGo(userQuery, 10);
+    allSearchResults += formatSearchResults(
+      mainResults,
+      "Main Web Search Results"
+    );
 
-    await delay(500);
+    // Delay between searches to avoid rate limiting
+    await delay(1000);
 
-    // 2. Latest news search
+    // 2. Latest news, blogs, and updates
     const newsResults = await searchDuckDuckGo(
-      `${userQuery} latest news 2025 2026`,
-      6
-    );
-    allSearchResults += formatSearchResults(newsResults, "Latest News");
-
-    await delay(500);
-
-    // 3. Blog posts and articles
-    const blogResults = await searchDuckDuckGo(
-      `${userQuery} blog post article analysis`,
-      6
-    );
-    allSearchResults += formatSearchResults(blogResults, "Blog Posts & Articles");
-
-    await delay(500);
-
-    // 4. Videos and multimedia
-    const videoResults = await searchDuckDuckGo(
-      `${userQuery} video youtube tutorial`,
-      5
-    );
-    allSearchResults += formatSearchResults(videoResults, "Videos & Media");
-
-    await delay(500);
-
-    // 5. Official announcements and updates
-    const announcementResults = await searchDuckDuckGo(
-      `${userQuery} official announcement update release`,
-      5
+      `${userQuery} latest news blog update announcement 2025 2026`,
+      8
     );
     allSearchResults += formatSearchResults(
-      announcementResults,
-      "Official Announcements & Updates"
+      newsResults,
+      "Latest News, Blogs & Updates"
     );
 
-    await delay(500);
+    await delay(1000);
 
-    // 6. PDFs, research papers, reports
-    const pdfResults = await searchDuckDuckGo(
-      `${userQuery} PDF research report whitepaper`,
-      5
+    // 3. Videos, PDFs, research, and deep resources
+    const deepResults = await searchDuckDuckGo(
+      `${userQuery} video tutorial PDF research report analysis`,
+      8
     );
     allSearchResults += formatSearchResults(
-      pdfResults,
-      "Research Papers & Reports"
+      deepResults,
+      "Videos, Research & Reports"
     );
 
     // Build conversation messages with search context
@@ -179,16 +158,17 @@ export async function POST(req: NextRequest) {
         }),
       new HumanMessage(
         `User Question: ${userQuery}\n\n` +
-          `=== LIVE DUCKDUCKGO SEARCH RESULTS ===\n\n${allSearchResults}\n` +
+          `=== LIVE DUCKDUCKGO SEARCH RESULTS (${new Date().toISOString()}) ===\n\n${allSearchResults}\n` +
           `=== END OF SEARCH RESULTS ===\n\n` +
           `Instructions: Based on the above REAL search results from DuckDuckGo, provide a comprehensive response following the exact structure defined in your system prompt. ` +
           `Make sure to:\n` +
           `1. Reference actual URLs and titles from the search results above\n` +
-          `2. Organize findings into the categories: Top News, Key Findings, Blogs & Articles, Videos, Announcements, Reports\n` +
-          `3. Include a numbered Sources section with all URLs\n` +
+          `2. Categorize findings into: Top News, Key Findings, Blogs & Articles, Videos & Media, Announcements, Data & Reports\n` +
+          `3. Include a numbered Sources section with all URLs as clickable markdown links\n` +
           `4. Add 5 suggested follow-up questions\n` +
-          `5. Use GFM markdown: tables, task lists (- [ ] item), footnotes, ~~strikethrough~~, and [autolinks](url)\n` +
-          `6. If certain categories have no results, note that explicitly.`
+          `5. Use GFM markdown: tables, task lists (- [ ] item), ~~strikethrough~~, and [links](url)\n` +
+          `6. If certain categories have no results, note that explicitly.\n` +
+          `7. Identify which results are news vs blogs vs videos vs reports based on the domain names (e.g., youtube.com = video, arxiv.org = research).`
       ),
     ];
 
