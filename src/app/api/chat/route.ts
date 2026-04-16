@@ -57,8 +57,8 @@ export async function POST(req: NextRequest) {
 
     // Initialize Cerebras LLM via OpenAI-compatible API
     const llm = new ChatOpenAI({
-      openAIApiKey: cerebrasApiKey,
-      modelName: "llama-3.1-8b",
+      apiKey: cerebrasApiKey,
+      model: "llama-3.1-8b",
       configuration: {
         baseURL: "https://api.cerebras.ai/v1",
       },
