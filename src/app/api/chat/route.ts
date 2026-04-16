@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
+import { DuckDuckGoSearch } from "@langchain/community/tools/duckduckgo_search";
 import {
   HumanMessage,
   AIMessage,
@@ -67,9 +68,30 @@ IMPORTANT RULES:
 - Be context-aware: understand the user's intent and tailor your search analysis accordingly.
 - Categorize each search result into the appropriate section based on the URL domain and content.`;
 
+async function retrySearch(
+  tool: DuckDuckGoSearch,
+  query: string,
+  retries: number = 3,
+  delayMs: number = 2000
+): Promise<string> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await tool.invoke(query);
+      if (result && result.length > 20) return result;
+    } catch (error) {
+      console.warn(`Search attempt ${i + 1} failed:`, error);
+      if (i < retries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
+      }
+    }
+  }
+  return "";
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { messages, searchResults } = await req.json();
+    const body = await req.json();
+    const { messages, searchResults: clientSearchResults } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -86,7 +108,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Initialize Cerebras LLM via OpenAI-compatible API
     const llm = new ChatOpenAI({
       apiKey: cerebrasApiKey,
       model: "llama-3.1-8b",
@@ -97,19 +118,30 @@ export async function POST(req: NextRequest) {
       maxTokens: 4096,
     });
 
-    // Get the last user message
     const lastMessage = messages[messages.length - 1];
     const userQuery = lastMessage.content;
 
-    // Format search results received from client
+    // Use client-provided search results if available, otherwise search server-side
     let formattedResults = "";
-    if (searchResults && typeof searchResults === "string") {
-      formattedResults = searchResults;
+    
+    if (clientSearchResults && clientSearchResults.length > 100) {
+      // Client already performed the search
+      formattedResults = clientSearchResults;
     } else {
-      formattedResults = "No search results available.";
+      // Server-side search using LangChain DuckDuckGo tool with retry
+      const searchTool = new DuckDuckGoSearch({ maxResults: 10 });
+      
+      // Single comprehensive search to stay within rate limits
+      const searchQuery = `${userQuery} latest news updates articles blogs 2025 2026`;
+      const results = await retrySearch(searchTool, searchQuery);
+      
+      if (results) {
+        formattedResults = `### DuckDuckGo Web Search Results\n${results}\n`;
+      } else {
+        formattedResults = "Search results temporarily unavailable. Please provide information based on your knowledge.";
+      }
     }
 
-    // Build conversation messages with search context
     const langchainMessages = [
       new SystemMessage(SYSTEM_PROMPT),
       ...messages
@@ -124,19 +156,12 @@ export async function POST(req: NextRequest) {
         `User Question: ${userQuery}\n\n` +
           `=== LIVE DUCKDUCKGO SEARCH RESULTS (${new Date().toISOString()}) ===\n\n${formattedResults}\n` +
           `=== END OF SEARCH RESULTS ===\n\n` +
-          `Instructions: Based on the above REAL search results from DuckDuckGo, provide a comprehensive response following the exact structure defined in your system prompt. ` +
-          `Make sure to:\n` +
-          `1. Reference actual URLs and titles from the search results above\n` +
-          `2. Categorize findings into: Top News, Key Findings, Blogs & Articles, Videos & Media, Announcements, Data & Reports\n` +
-          `3. Include a numbered Sources section with all URLs as clickable markdown links\n` +
-          `4. Add 5 suggested follow-up questions\n` +
-          `5. Use GFM markdown: tables, task lists (- [ ] item), ~~strikethrough~~, and [links](url)\n` +
-          `6. If certain categories have no results, note that explicitly.\n` +
-          `7. Identify which results are news vs blogs vs videos vs reports based on the domain names.`
+          `Instructions: Based on the above search results, provide a comprehensive response following the exact structure in your system prompt. ` +
+          `Reference actual URLs and titles. Categorize findings into the sections. Include a Sources section. Add 5 follow-up questions. ` +
+          `Use GFM markdown features: tables, task lists, strikethrough, and clickable links.`
       ),
     ];
 
-    // Get AI response
     const response = await llm.invoke(langchainMessages);
 
     return NextResponse.json({
