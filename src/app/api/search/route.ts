@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "edge";
 
+// Try multiple regions by using different DDG endpoints
+export const preferredRegion = ["iad1", "sfo1", "lhr1", "hnd1", "cdg1"];
+
 interface SearchResult {
   title: string;
   url: string;
@@ -20,8 +23,58 @@ function decodeHTMLEntities(text: string): string {
     .replace(/&#x2F;/g, "/");
 }
 
-async function searchDDG(query: string): Promise<SearchResult[]> {
-  // Use GET instead of POST - DDG blocks POST from cloud IPs but allows GET
+async function searchDDGLite(query: string): Promise<SearchResult[]> {
+  const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      Accept: "text/html",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
+
+  if (!response.ok) return [];
+
+  const html = await response.text();
+  const results: SearchResult[] = [];
+
+  const linkRegex =
+    /<a[^>]+class="result-link"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const snippetRegex =
+    /<td[^>]+class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
+
+  const links: { url: string; title: string }[] = [];
+  let match;
+
+  while ((match = linkRegex.exec(html)) !== null) {
+    links.push({
+      url: match[1],
+      title: decodeHTMLEntities(match[2].replace(/<[^>]*>/g, "").trim()),
+    });
+  }
+
+  const snippets: string[] = [];
+  while ((match = snippetRegex.exec(html)) !== null) {
+    snippets.push(
+      decodeHTMLEntities(match[1].replace(/<[^>]*>/g, "").trim())
+    );
+  }
+
+  for (let i = 0; i < Math.min(links.length, 10); i++) {
+    results.push({
+      title: links[i].title,
+      url: links[i].url,
+      snippet: snippets[i] || "",
+    });
+  }
+
+  return results;
+}
+
+async function searchDDGHTML(query: string): Promise<SearchResult[]> {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
 
   const response = await fetch(url, {
@@ -29,17 +82,13 @@ async function searchDDG(query: string): Promise<SearchResult[]> {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      Accept: "text/html",
       "Accept-Language": "en-US,en;q=0.9",
       Referer: "https://duckduckgo.com/",
     },
   });
 
-  if (!response.ok) {
-    console.error(`DDG returned status ${response.status}`);
-    return [];
-  }
+  if (!response.ok || response.status === 202) return [];
 
   const html = await response.text();
   if (!html.includes("result__a")) return [];
@@ -97,8 +146,20 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const results = await searchDDG(query);
-    return NextResponse.json({ results, query });
+    // Try DDG HTML first, then Lite
+    let results = await searchDDGHTML(query);
+    const source = results.length > 0 ? "html" : "lite";
+    
+    if (results.length === 0) {
+      results = await searchDDGLite(query);
+    }
+
+    return NextResponse.json({
+      results,
+      query,
+      source,
+      resultsCount: results.length,
+    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Search failed";
     return NextResponse.json({ error: msg, results: [] }, { status: 500 });
