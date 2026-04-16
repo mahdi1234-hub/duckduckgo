@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ChatOpenAI } from "@langchain/openai";
-import { DuckDuckGoSearch } from "@langchain/community/tools/duckduckgo_search";
 import {
   HumanMessage,
   AIMessage,
   SystemMessage,
 } from "@langchain/core/messages";
+import {
+  searchDuckDuckGo,
+  formatSearchResults,
+} from "@/lib/duckduckgo-search";
 
 const SYSTEM_PROMPT = `You are an elite AI-powered Search Specialist Agent called "Etheria Search". Your mission is to provide the most accurate, up-to-date, and comprehensive information on any topic the user asks about.
 
@@ -71,23 +74,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function safeSearch(
-  tool: DuckDuckGoSearch,
-  query: string,
-  label: string
-): Promise<string> {
-  try {
-    const result = await tool.invoke(query);
-    if (result && result.length > 10) {
-      return `### ${label}\nQuery: "${query}"\n${result}\n\n`;
-    }
-    return `### ${label}\nNo results found for "${query}".\n\n`;
-  } catch (error) {
-    console.error(`Search error for "${query}":`, error);
-    return `### ${label}\nSearch temporarily unavailable for "${query}".\n\n`;
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { messages } = await req.json();
@@ -118,75 +104,67 @@ export async function POST(req: NextRequest) {
       maxTokens: 4096,
     });
 
-    // Initialize DuckDuckGo Search tool
-    const searchTool = new DuckDuckGoSearch({ maxResults: 8 });
-
     // Get the last user message
     const lastMessage = messages[messages.length - 1];
     const userQuery = lastMessage.content;
 
-    // Perform multiple diverse searches to get comprehensive results
-    // Each search targets a different content type
+    // Perform multiple diverse searches using custom DuckDuckGo scraper
     let allSearchResults = "";
 
     // 1. Main topic search
-    const mainResults = await safeSearch(
-      searchTool,
-      userQuery,
-      "Web Search Results"
-    );
-    allSearchResults += mainResults;
+    const mainResults = await searchDuckDuckGo(userQuery, 8);
+    allSearchResults += formatSearchResults(mainResults, "Web Search Results");
 
-    // Small delay to avoid rate limiting
-    await delay(300);
+    await delay(500);
 
     // 2. Latest news search
-    const newsResults = await safeSearch(
-      searchTool,
+    const newsResults = await searchDuckDuckGo(
       `${userQuery} latest news 2025 2026`,
-      "Latest News"
+      6
     );
-    allSearchResults += newsResults;
+    allSearchResults += formatSearchResults(newsResults, "Latest News");
 
-    await delay(300);
+    await delay(500);
 
     // 3. Blog posts and articles
-    const blogResults = await safeSearch(
-      searchTool,
+    const blogResults = await searchDuckDuckGo(
       `${userQuery} blog post article analysis`,
-      "Blog Posts & Articles"
+      6
     );
-    allSearchResults += blogResults;
+    allSearchResults += formatSearchResults(blogResults, "Blog Posts & Articles");
 
-    await delay(300);
+    await delay(500);
 
     // 4. Videos and multimedia
-    const videoResults = await safeSearch(
-      searchTool,
+    const videoResults = await searchDuckDuckGo(
       `${userQuery} video youtube tutorial`,
-      "Videos & Media"
+      5
     );
-    allSearchResults += videoResults;
+    allSearchResults += formatSearchResults(videoResults, "Videos & Media");
 
-    await delay(300);
+    await delay(500);
 
     // 5. Official announcements and updates
-    const announcementResults = await safeSearch(
-      searchTool,
+    const announcementResults = await searchDuckDuckGo(
       `${userQuery} official announcement update release`,
+      5
+    );
+    allSearchResults += formatSearchResults(
+      announcementResults,
       "Official Announcements & Updates"
     );
-    allSearchResults += announcementResults;
 
-    await delay(300);
+    await delay(500);
 
     // 6. PDFs, research papers, reports
-    const pdfResults = await safeSearch(
-      searchTool,
+    const pdfResults = await searchDuckDuckGo(
       `${userQuery} PDF research report whitepaper`,
+      5
+    );
+    allSearchResults += formatSearchResults(
+      pdfResults,
       "Research Papers & Reports"
     );
-    allSearchResults += pdfResults;
 
     // Build conversation messages with search context
     const langchainMessages = [
