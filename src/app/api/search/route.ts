@@ -21,22 +21,23 @@ function decodeHTMLEntities(text: string): string {
 }
 
 async function searchDDG(query: string): Promise<SearchResult[]> {
+  // Use GET instead of POST - DDG blocks POST from cloud IPs but allows GET
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
 
   const response = await fetch(url, {
-    method: "POST",
+    method: "GET",
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       Accept:
         "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.9",
-      "Content-Type": "application/x-www-form-urlencoded",
+      Referer: "https://duckduckgo.com/",
     },
-    body: `q=${encodeURIComponent(query)}&b=`,
   });
 
-  if (!response.ok || response.status === 202) {
+  if (!response.ok) {
+    console.error(`DDG returned status ${response.status}`);
     return [];
   }
 
@@ -89,7 +90,10 @@ async function searchDDG(query: string): Promise<SearchResult[]> {
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q");
   if (!query) {
-    return NextResponse.json({ error: "Query parameter 'q' is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Query parameter 'q' is required" },
+      { status: 400 }
+    );
   }
 
   try {
