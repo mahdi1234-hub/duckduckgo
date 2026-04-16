@@ -20,20 +20,43 @@ export default function TypingIndicator() {
           </svg>
         </div>
       </div>
-      <div className="flex flex-col gap-2 py-3">
+      <div className="flex flex-col gap-3 py-3 max-w-md">
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5">
             <span className="typing-dot w-2 h-2 rounded-full bg-stone-400" />
             <span className="typing-dot w-2 h-2 rounded-full bg-stone-400" />
             <span className="typing-dot w-2 h-2 rounded-full bg-stone-400" />
           </div>
-          <span
-            className="text-xs text-stone-400 uppercase tracking-widest ml-2"
-            style={{ letterSpacing: "-0.025em" }}
-          >
-            Searching the web & analyzing...
-          </span>
         </div>
+
+        {/* Search progress indicators */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-[11px] text-stone-400">
+            <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span style={{ letterSpacing: "-0.025em" }}>
+              Searching web for latest information...
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {["News", "Articles", "Blogs", "Videos", "Reports", "Updates"].map(
+              (source, i) => (
+                <span
+                  key={source}
+                  className="px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider border border-stone-300/50 text-stone-400 shimmer-loading"
+                  style={{
+                    animationDelay: `${i * 200}ms`,
+                    letterSpacing: "-0.025em",
+                  }}
+                >
+                  {source}
+                </span>
+              )
+            )}
+          </div>
+        </div>
+
         <div className="flex gap-2 mt-1">
           <div className="h-2 w-32 rounded-full shimmer-loading" />
           <div className="h-2 w-20 rounded-full shimmer-loading" />

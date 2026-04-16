@@ -7,34 +7,86 @@ import {
   SystemMessage,
 } from "@langchain/core/messages";
 
-const SYSTEM_PROMPT = `You are an elite AI-powered Search Specialist Agent. Your mission is to provide the most accurate, up-to-date, and comprehensive information on any topic the user asks about.
+const SYSTEM_PROMPT = `You are an elite AI-powered Search Specialist Agent called "Etheria Search". Your mission is to provide the most accurate, up-to-date, and comprehensive information on any topic the user asks about.
 
 CORE DIRECTIVES:
-1. You have access to a DuckDuckGo web search tool. When a user asks a question, I will search the web for you and include the results.
-2. Provide FRESH, UP-TO-DATE information. Prioritize the most recent sources from 2025-2026.
-3. Include clickable source links for every piece of information you provide.
-4. Structure your responses clearly with markdown formatting.
+1. You receive real-time web search results from DuckDuckGo. Use them as your PRIMARY source of truth.
+2. Always reference and cite the actual search results provided to you.
+3. Provide FRESH, UP-TO-DATE information. Prioritize the most recent sources.
+4. Include clickable source links for every piece of information you provide.
+5. Structure your responses clearly with markdown formatting.
 
-RESPONSE FORMAT:
-- Use headers (##, ###) to organize information
-- Include bullet points for key findings
-- Always provide source URLs as markdown links [Source Title](url)
-- Add a "## Sources" section at the end with all referenced links
-- Use tables when comparing information
-- Include relevant dates to show how current the information is
-- Use footnotes where appropriate
-- Use strikethrough for outdated information when comparing old vs new
-- Use task lists for actionable items
+RESPONSE STRUCTURE (always follow this):
 
-FOLLOW-UP SUGGESTIONS:
-- Always end with a "## Suggested Follow-ups" section
-- Provide 3-5 related questions the user might want to explore next
+## Overview
+Brief summary of the topic based on search results.
 
-PERSONALITY:
-- Be thorough and professional
-- Provide context and analysis, not just raw data
-- Suggest related topics the user might want to explore
-- Be transparent about the recency and reliability of sources`;
+## Top News
+Latest news items found in the search results with dates and links.
+
+## Key Findings
+Detailed bullet points from multiple sources (articles, blogs, official docs).
+
+## Top Blogs & Articles
+Links to relevant blog posts and articles found.
+
+## Videos & Media
+Any video or multimedia content found (YouTube links, etc).
+
+## Official Announcements & Updates
+Any official announcements from companies, organizations, or governments.
+
+## Data & Reports
+Any PDFs, research papers, or data reports found.
+
+## Analysis
+Your synthesis and analysis of all the information gathered.
+
+| Aspect | Details |
+|--------|---------|
+| Topic  | ... |
+| Last Updated | ... |
+| Key Trend | ... |
+
+## Sources
+Numbered list of ALL source URLs referenced in your response:
+1. [Source Title](url) - brief description
+2. [Source Title](url) - brief description
+
+## Suggested Follow-ups
+- Question 1 the user might want to explore
+- Question 2 the user might want to explore
+- Question 3 the user might want to explore
+- Question 4 the user might want to explore
+- Question 5 the user might want to explore
+
+IMPORTANT RULES:
+- If a section has no relevant results, write "No specific results found for this category." instead of making up information.
+- Every link you provide MUST come from the actual search results given to you.
+- Use markdown tables, task lists, footnotes, and strikethrough where appropriate.
+- Format all URLs as clickable markdown links: [Title](url)
+- Be context-aware: understand the user's intent and tailor your search analysis accordingly.`;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function safeSearch(
+  tool: DuckDuckGoSearch,
+  query: string,
+  label: string
+): Promise<string> {
+  try {
+    const result = await tool.invoke(query);
+    if (result && result.length > 10) {
+      return `### ${label}\nQuery: "${query}"\n${result}\n\n`;
+    }
+    return `### ${label}\nNo results found for "${query}".\n\n`;
+  } catch (error) {
+    console.error(`Search error for "${query}":`, error);
+    return `### ${label}\nSearch temporarily unavailable for "${query}".\n\n`;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,50 +119,98 @@ export async function POST(req: NextRequest) {
     });
 
     // Initialize DuckDuckGo Search tool
-    const searchTool = new DuckDuckGoSearch({ maxResults: 10 });
+    const searchTool = new DuckDuckGoSearch({ maxResults: 8 });
 
     // Get the last user message
     const lastMessage = messages[messages.length - 1];
     const userQuery = lastMessage.content;
 
-    // Perform multiple searches to get comprehensive results
-    let searchResults = "";
-    try {
-      // Main topic search
-      const mainResults = await searchTool.invoke(userQuery);
-      searchResults += `### Web Search Results for "${userQuery}":\n${mainResults}\n\n`;
+    // Perform multiple diverse searches to get comprehensive results
+    // Each search targets a different content type
+    let allSearchResults = "";
 
-      // Search for latest news
-      const newsResults = await searchTool.invoke(`${userQuery} latest news 2025 2026`);
-      searchResults += `### Latest News Results:\n${newsResults}\n\n`;
+    // 1. Main topic search
+    const mainResults = await safeSearch(
+      searchTool,
+      userQuery,
+      "Web Search Results"
+    );
+    allSearchResults += mainResults;
 
-      // Search for articles and blogs
-      const articleResults = await searchTool.invoke(`${userQuery} articles blog updates`);
-      searchResults += `### Articles & Blog Results:\n${articleResults}\n\n`;
-    } catch (searchError) {
-      console.error("Search error:", searchError);
-      searchResults = "Search results were partially unavailable. Providing information based on available data.\n";
-    }
+    // Small delay to avoid rate limiting
+    await delay(300);
+
+    // 2. Latest news search
+    const newsResults = await safeSearch(
+      searchTool,
+      `${userQuery} latest news 2025 2026`,
+      "Latest News"
+    );
+    allSearchResults += newsResults;
+
+    await delay(300);
+
+    // 3. Blog posts and articles
+    const blogResults = await safeSearch(
+      searchTool,
+      `${userQuery} blog post article analysis`,
+      "Blog Posts & Articles"
+    );
+    allSearchResults += blogResults;
+
+    await delay(300);
+
+    // 4. Videos and multimedia
+    const videoResults = await safeSearch(
+      searchTool,
+      `${userQuery} video youtube tutorial`,
+      "Videos & Media"
+    );
+    allSearchResults += videoResults;
+
+    await delay(300);
+
+    // 5. Official announcements and updates
+    const announcementResults = await safeSearch(
+      searchTool,
+      `${userQuery} official announcement update release`,
+      "Official Announcements & Updates"
+    );
+    allSearchResults += announcementResults;
+
+    await delay(300);
+
+    // 6. PDFs, research papers, reports
+    const pdfResults = await safeSearch(
+      searchTool,
+      `${userQuery} PDF research report whitepaper`,
+      "Research Papers & Reports"
+    );
+    allSearchResults += pdfResults;
 
     // Build conversation messages with search context
     const langchainMessages = [
       new SystemMessage(SYSTEM_PROMPT),
-      ...messages.slice(0, -1).map((msg: { role: string; content: string }) => {
-        if (msg.role === "user") {
-          return new HumanMessage(msg.content);
-        }
-        return new AIMessage(msg.content);
-      }),
+      ...messages
+        .slice(0, -1)
+        .map((msg: { role: string; content: string }) => {
+          if (msg.role === "user") {
+            return new HumanMessage(msg.content);
+          }
+          return new AIMessage(msg.content);
+        }),
       new HumanMessage(
         `User Question: ${userQuery}\n\n` +
-        `Here are the latest search results from the web to help you answer:\n\n${searchResults}\n\n` +
-        `Based on these search results, please provide a comprehensive, well-structured answer with:\n` +
-        `1. Key findings with source links\n` +
-        `2. Latest news and updates\n` +
-        `3. Multiple perspectives from different sources\n` +
-        `4. A sources section with all links\n` +
-        `5. Suggested follow-up questions\n` +
-        `Format everything in clean markdown with GFM features (tables, task lists, footnotes, strikethrough, autolinks).`
+          `=== LIVE DUCKDUCKGO SEARCH RESULTS ===\n\n${allSearchResults}\n` +
+          `=== END OF SEARCH RESULTS ===\n\n` +
+          `Instructions: Based on the above REAL search results from DuckDuckGo, provide a comprehensive response following the exact structure defined in your system prompt. ` +
+          `Make sure to:\n` +
+          `1. Reference actual URLs and titles from the search results above\n` +
+          `2. Organize findings into the categories: Top News, Key Findings, Blogs & Articles, Videos, Announcements, Reports\n` +
+          `3. Include a numbered Sources section with all URLs\n` +
+          `4. Add 5 suggested follow-up questions\n` +
+          `5. Use GFM markdown: tables, task lists (- [ ] item), footnotes, ~~strikethrough~~, and [autolinks](url)\n` +
+          `6. If certain categories have no results, note that explicitly.`
       ),
     ];
 
